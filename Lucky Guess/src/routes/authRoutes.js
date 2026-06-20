@@ -3,9 +3,9 @@
 // Contoura Labs
 // ============================================================
 
-import { Router } from 'express';
-import { googleLogin, guestLogin, getMe, logout } from '../controllers/authController';
-import { authMiddleware } from '../middleware/auth';
+const { Router } = require('express');
+const { googleLogin, guestLogin, getMe, logout } = require('../controllers/authController');
+const { authMiddleware } = require('../middleware/auth');
 
 const router = Router();
 
@@ -14,4 +14,4 @@ router.post('/guest', guestLogin);
 router.get('/me', authMiddleware, getMe);
 router.post('/logout', authMiddleware, logout);
 
-export default router;
+module.exports = router;

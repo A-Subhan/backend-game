@@ -3,18 +3,10 @@
 // Contoura Labs
 // ============================================================
 
-import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { env } from '../config/env';
+const jwt = require('jsonwebtoken');
+const { env } = require('../config/env');
 
-export interface AuthRequest extends Request {
-  user?: {
-    userId: string;
-    isGuest: boolean;
-  };
-}
-
-export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
+function authMiddleware(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
 
@@ -22,7 +14,7 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
       res.status(401).json({
         success: false,
         error: 'No authorization token provided',
-      } as const);
+      });
       return;
     }
 
@@ -32,14 +24,11 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
       res.status(401).json({
         success: false,
         error: 'Empty authorization token',
-      } as const);
+      });
       return;
     }
 
-    const decoded = jwt.verify(token, env.JWT_SECRET) as {
-      userId: string;
-      isGuest: boolean;
-    };
+    const decoded = jwt.verify(token, env.JWT_SECRET);
 
     req.user = {
       userId: decoded.userId,
@@ -52,30 +41,27 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
       res.status(401).json({
         success: false,
         error: 'Invalid or expired token',
-      } as const);
+      });
       return;
     }
     res.status(500).json({
       success: false,
       error: 'Internal server error during authentication',
-    } as const);
+    });
   }
 }
 
 /**
  * Optional auth — attaches user if token present, but does not block.
  */
-export function optionalAuthMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
+function optionalAuthMiddleware(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       if (token) {
-        const decoded = jwt.verify(token, env.JWT_SECRET) as {
-          userId: string;
-          isGuest: boolean;
-        };
+        const decoded = jwt.verify(token, env.JWT_SECRET);
         req.user = {
           userId: decoded.userId,
           isGuest: decoded.isGuest ?? false,
@@ -87,3 +73,5 @@ export function optionalAuthMiddleware(req: AuthRequest, res: Response, next: Ne
   }
   next();
 }
+
+module.exports = { authMiddleware, optionalAuthMiddleware };

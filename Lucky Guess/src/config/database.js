@@ -3,14 +3,13 @@
 // Contoura Labs
 // ============================================================
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { env } from './env';
+const { createClient } = require('@supabase/supabase-js');
+const { env } = require('./env');
 
 /**
  * Admin client — uses the service role key, bypasses RLS.
- * Use for server-side operations that need full access.
  */
-export const supabaseAdmin: SupabaseClient = createClient(
+const supabaseAdmin = createClient(
   env.SUPABASE_URL,
   env.SUPABASE_SERVICE_KEY,
   {
@@ -23,9 +22,8 @@ export const supabaseAdmin: SupabaseClient = createClient(
 
 /**
  * Anon client — uses the anon key, respects RLS.
- * Use for user-scoped operations.
  */
-export const supabaseAnon: SupabaseClient = createClient(
+const supabaseAnon = createClient(
   env.SUPABASE_URL,
   env.SUPABASE_ANON_KEY,
   {
@@ -35,3 +33,5 @@ export const supabaseAnon: SupabaseClient = createClient(
     },
   }
 );
+
+module.exports = { supabaseAdmin, supabaseAnon };

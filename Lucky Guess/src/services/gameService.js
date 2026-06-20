@@ -3,43 +3,17 @@
 // Contoura Labs
 // ============================================================
 
-import { v4 as uuidv4 } from 'uuid';
-import { supabaseAdmin } from '../config/database';
-import { Room, MatchRecord, Achievement } from '@shared/types';
-import { GAME_CONFIGS, COINS_WIN, COINS_LOSS } from '@shared/constants';
-import { calculateElo, EloResult } from './eloService';
-import { awardCoins } from './coinService';
-import { checkAndUnlockAchievements, AchievementContext } from './achievementService';
-
-export type GuessResult = 'higher' | 'lower' | 'correct';
-
-export interface GuessOutcome {
-  result: GuessResult;
-  attemptsLeft: number;
-  isCorrect: boolean;
-}
-
-export interface EndGameResult {
-  winnerId: string;
-  loserId: string;
-  winnerEloChange: number;
-  loserEloChange: number;
-  coinsAwarded: number;
-  matchId: string;
-  winnerNewElo: number;
-  loserNewElo: number;
-  newAchievements: Achievement[];
-}
+const { v4: uuidv4 } = require('uuid');
+const { supabaseAdmin } = require('../config/database');
+const { GAME_CONFIGS, COINS_WIN, COINS_LOSS } = require('../../shared/constants');
+const { calculateElo } = require('./eloService');
+const { awardCoins } = require('./coinService');
+const { checkAndUnlockAchievements } = require('./achievementService');
 
 /**
  * Create a new online game room in the database.
  */
-export async function createOnlineRoom(
-  player1Id: string,
-  player1Name: string,
-  player2Id: string,
-  player2Name: string
-): Promise<Room> {
+async function createOnlineRoom(player1Id, player1Name, player2Id, player2Name) {
   const roomId = uuidv4();
   const config = GAME_CONFIGS['online'];
   const secretNumber = Math.floor(Math.random() * (config.max - config.min + 1)) + config.min;
@@ -87,14 +61,8 @@ export async function createOnlineRoom(
 
 /**
  * Process a guess for a given room.
- * Returns the result (higher/lower/correct) and remaining attempts.
  */
-export async function processGuess(
-  roomId: string,
-  playerId: string,
-  guess: number
-): Promise<GuessOutcome> {
-  // Fetch the room
+async function processGuess(roomId, playerId, guess) {
   const { data: room, error: roomError } = await supabaseAdmin
     .from('rooms')
     .select('*')
@@ -109,15 +77,13 @@ export async function processGuess(
     throw new Error('Game is no longer in progress');
   }
 
-  // Verify the player is in this room
   if (room.player1_id !== playerId && room.player2_id !== playerId) {
     throw new Error('Player is not in this room');
   }
 
-  // Determine which player is guessing
   const isPlayer1 = room.player1_id === playerId;
-  const currentAttempts = isPlayer1 ? (room.player1_attempts as number) : (room.player2_attempts as number);
-  const maxAttempts = room.max_attempts as number;
+  const currentAttempts = isPlayer1 ? room.player1_attempts : room.player2_attempts;
+  const maxAttempts = room.max_attempts;
 
   if (currentAttempts >= maxAttempts) {
     throw new Error('No attempts remaining');
@@ -126,9 +92,8 @@ export async function processGuess(
   const newAttempts = currentAttempts + 1;
   const attemptsLeft = maxAttempts - newAttempts;
 
-  // Determine result
-  const secretNumber = room.secret_number as number;
-  let result: GuessResult;
+  const secretNumber = room.secret_number;
+  let result;
 
   if (guess === secretNumber) {
     result = 'correct';
@@ -138,7 +103,6 @@ export async function processGuess(
     result = 'lower';
   }
 
-  // Update attempts in DB
   const updateField = isPlayer1 ? 'player1_attempts' : 'player2_attempts';
   const { error: updateError } = await supabaseAdmin
     .from('rooms')
@@ -159,12 +123,7 @@ export async function processGuess(
 /**
  * End a game: update room status, create match record, update ELO, coins, achievements.
  */
-export async function endGame(
-  roomId: string,
-  winnerId: string,
-  loserId: string,
-  winnerAttempts: number
-): Promise<EndGameResult> {
+async function endGame(roomId, winnerId, loserId, winnerAttempts) {
   // 1. Fetch the room
   const { data: room, error: roomError } = await supabaseAdmin
     .from('rooms')
@@ -177,10 +136,10 @@ export async function endGame(
   }
 
   const loserAttempts = room.player1_id === loserId
-    ? (room.player1_attempts as number)
-    : (room.player2_attempts as number);
+    ? room.player1_attempts
+    : room.player2_attempts;
 
-  const createdAt = new Date(room.created_at as string);
+  const createdAt = new Date(room.created_at);
   const durationSeconds = Math.round((Date.now() - createdAt.getTime()) / 1000);
 
   // 2. Fetch both players' ELO
@@ -201,10 +160,7 @@ export async function endGame(
   }
 
   // 3. Calculate ELO
-  const eloResult: EloResult = calculateElo(
-    winner.elo as number,
-    loser.elo as number
-  );
+  const eloResult = calculateElo(winner.elo, loser.elo);
 
   // 4. Update room status
   await supabaseAdmin
@@ -234,15 +190,15 @@ export async function endGame(
   }
 
   // 6. Update winner stats
-  const newWinnerStreak = (winner.streak as number) + 1;
-  const newWinnerBestStreak = Math.max(winner.best_streak as number, newWinnerStreak);
+  const newWinnerStreak = winner.streak + 1;
+  const newWinnerBestStreak = Math.max(winner.best_streak, newWinnerStreak);
 
   await supabaseAdmin
     .from('users')
     .update({
       elo: eloResult.newWinnerElo,
-      total_wins: (winner.total_wins as number) + 1,
-      total_matches: (winner.total_matches as number) + 1,
+      total_wins: winner.total_wins + 1,
+      total_matches: winner.total_matches + 1,
       streak: newWinnerStreak,
       best_streak: newWinnerBestStreak,
       updated_at: new Date().toISOString(),
@@ -254,8 +210,8 @@ export async function endGame(
     .from('users')
     .update({
       elo: eloResult.newLoserElo,
-      total_losses: (loser.total_losses as number) + 1,
-      total_matches: (loser.total_matches as number) + 1,
+      total_losses: loser.total_losses + 1,
+      total_matches: loser.total_matches + 1,
       streak: 0,
       updated_at: new Date().toISOString(),
     })
@@ -266,12 +222,12 @@ export async function endGame(
   await awardCoins(loserId, COINS_LOSS, 'match_loss');
 
   // 9. Check achievements for winner
-  const winnerContext: AchievementContext = {
-    totalWins: (winner.total_wins as number) + 1,
-    totalMatches: (winner.total_matches as number) + 1,
+  const winnerContext = {
+    totalWins: winner.total_wins + 1,
+    totalMatches: winner.total_matches + 1,
     streak: newWinnerStreak,
     bestStreak: newWinnerBestStreak,
-    totalCoins: coinResult.success ? coinResult.newTotal : (winner.coins as number),
+    totalCoins: coinResult.success ? coinResult.newTotal : winner.coins,
     lastWinAttempts: winnerAttempts,
   };
 
@@ -293,11 +249,7 @@ export async function endGame(
 /**
  * End a game by forfeit — the other player wins.
  */
-export async function forfeitGame(
-  roomId: string,
-  forfeiterId: string
-): Promise<EndGameResult> {
-  // Fetch the room to determine the opponent
+async function forfeitGame(roomId, forfeiterId) {
   const { data: room, error } = await supabaseAdmin
     .from('rooms')
     .select('*')
@@ -313,6 +265,7 @@ export async function forfeitGame(
     throw new Error('Cannot determine winner');
   }
 
-  // Winner gets the max attempts as their "attempts" (they didn't win by guessing)
-  return endGame(roomId, winnerId, forfeiterId, (room.max_attempts as number) + 1);
+  return endGame(roomId, winnerId, forfeiterId, room.max_attempts + 1);
 }
+
+module.exports = { createOnlineRoom, processGuess, endGame, forfeitGame };

@@ -3,10 +3,8 @@
 // Contoura Labs
 // ============================================================
 
-import { AchievementKey, GameConfig, GameMode } from './types';
-
 /* ── Game Difficulty Configs ──────────────────────────── */
-export const GAME_CONFIGS: Record<GameMode, GameConfig> = {
+const GAME_CONFIGS = {
   single_easy:     { min: 1,  max: 50,   maxAttempts: 15 },
   single_medium:   { min: 1,  max: 100,  maxAttempts: 10 },
   single_hard:     { min: 1,  max: 500,  maxAttempts: 8  },
@@ -16,24 +14,17 @@ export const GAME_CONFIGS: Record<GameMode, GameConfig> = {
 };
 
 /* ── Coin Rewards ─────────────────────────────────────── */
-export const COINS_WIN  = 50;
-export const COINS_LOSS = 10;
+const COINS_WIN  = 50;
+const COINS_LOSS = 10;
 
 /* ── ELO Settings ─────────────────────────────────────── */
-export const ELO_INITIAL      = 1000;
-export const ELO_K_FACTOR     = 32;
-export const ELO_DEFAULT_CHANGE_WIN  =  25;
-export const ELO_DEFAULT_CHANGE_LOSS = -20;
+const ELO_INITIAL      = 1000;
+const ELO_K_FACTOR     = 32;
+const ELO_DEFAULT_CHANGE_WIN  =  25;
+const ELO_DEFAULT_CHANGE_LOSS = -20;
 
 /* ── Achievements Definition ──────────────────────────── */
-export interface AchievementDef {
-  key: AchievementKey;
-  title: string;
-  description: string;
-  icon: string;
-}
-
-export const ACHIEVEMENTS: AchievementDef[] = [
+const ACHIEVEMENTS = [
   { key: 'first_win',    title: 'First Win',       description: 'Win your first match',                icon: '🏆' },
   { key: 'lucky_guess',  title: 'Lucky Guess',     description: 'Win in exactly 1 attempt',            icon: '🍀' },
   { key: 'sharpshooter', title: 'Sharpshooter',    description: 'Win in 3 or fewer attempts',          icon: '🎯' },
@@ -43,7 +34,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
 ];
 
 /* ── Socket Events ─────────────────────────────────────── */
-export const SOCKET_EVENTS = {
+const SOCKET_EVENTS = {
   // Client → Server
   JOIN_QUEUE:    'join_queue',
   LEAVE_QUEUE:   'leave_queue',
@@ -57,26 +48,26 @@ export const SOCKET_EVENTS = {
   GAME_OVER:              'game_over',
   OPPONENT_DISCONNECTED:  'opponent_disconnected',
   ERROR:                  'error',
-} as const;
+};
 
 /* ── Theme ────────────────────────────────────────────── */
-export const THEME_KEYS = {
+const THEME_KEYS = {
   LIGHT: 'light',
   DARK:  'dark',
-} as const;
+};
 
 /* ── Async Storage Keys ──────────────────────────────── */
-export const STORAGE_KEYS = {
+const STORAGE_KEYS = {
   THEME:        '@lucky_guess/theme',
   USER:         '@lucky_guess/user',
   AUTH_TOKEN:   '@lucky_guess/auth_token',
   SOUND:        '@lucky_guess/sound_enabled',
   VIBRATION:    '@lucky_guess/vibration_enabled',
   GUEST_MODE:   '@lucky_guess/guest_mode',
-} as const;
+};
 
 /* ── API Endpoints ────────────────────────────────────── */
-export const API = {
+const API = {
   BASE_URL: '',
   AUTH: {
     GOOGLE_CALLBACK:  '/auth/google/callback',
@@ -91,4 +82,19 @@ export const API = {
     LEADERBOARD:'/leaderboard',
     ACHIEVEMENTS:'/user/achievements',
   },
-} as const;
+};
+
+module.exports = {
+  GAME_CONFIGS,
+  COINS_WIN,
+  COINS_LOSS,
+  ELO_INITIAL,
+  ELO_K_FACTOR,
+  ELO_DEFAULT_CHANGE_WIN,
+  ELO_DEFAULT_CHANGE_LOSS,
+  ACHIEVEMENTS,
+  SOCKET_EVENTS,
+  THEME_KEYS,
+  STORAGE_KEYS,
+  API,
+};

@@ -3,12 +3,12 @@
 // Contoura Labs
 // ============================================================
 
-import dotenv from 'dotenv';
-import path from 'path';
+const dotenv = require('dotenv');
+const path = require('path');
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-function getEnvVar(name: string, required = true): string {
+function getEnvVar(name, required = true) {
   const value = process.env[name];
   if (required && !value) {
     throw new Error(`Missing required environment variable: ${name}`);
@@ -16,7 +16,7 @@ function getEnvVar(name: string, required = true): string {
   return value || '';
 }
 
-function getEnvNumber(name: string, defaultValue: number): number {
+function getEnvNumber(name, defaultValue) {
   const value = process.env[name];
   if (!value) return defaultValue;
   const parsed = parseInt(value, 10);
@@ -24,7 +24,7 @@ function getEnvNumber(name: string, defaultValue: number): number {
   return parsed;
 }
 
-export const env = {
+const env = {
   PORT: getEnvNumber('PORT', 3001),
   NODE_ENV: process.env.NODE_ENV || 'development',
 
@@ -43,7 +43,9 @@ export const env = {
   // Frontend
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
 
-  isDev(): boolean {
+  isDev() {
     return this.NODE_ENV === 'development';
   },
-} as const;
+};
+
+module.exports = { env };

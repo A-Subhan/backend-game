@@ -3,24 +3,13 @@
 // Contoura Labs
 // ============================================================
 
-import { supabaseAdmin } from '../config/database';
-
-export interface CoinResult {
-  success: boolean;
-  newTotal: number;
-  error?: string;
-}
+const { supabaseAdmin } = require('../config/database');
 
 /**
  * Award coins to a user.
  */
-export async function awardCoins(
-  userId: string,
-  amount: number,
-  _reason: string
-): Promise<CoinResult> {
+async function awardCoins(userId, amount, _reason) {
   try {
-    // Fetch current coins
     const { data: user, error: fetchError } = await supabaseAdmin
       .from('users')
       .select('coins')
@@ -31,7 +20,7 @@ export async function awardCoins(
       return { success: false, newTotal: 0, error: 'User not found' };
     }
 
-    const newTotal = (user.coins as number) + amount;
+    const newTotal = user.coins + amount;
 
     const { error: updateError } = await supabaseAdmin
       .from('users')
@@ -40,7 +29,7 @@ export async function awardCoins(
 
     if (updateError) {
       console.error('Failed to award coins:', updateError);
-      return { success: false, newTotal: user.coins as number, error: 'Failed to update coins' };
+      return { success: false, newTotal: user.coins, error: 'Failed to update coins' };
     }
 
     return { success: true, newTotal };
@@ -53,12 +42,8 @@ export async function awardCoins(
 /**
  * Deduct coins from a user if they have enough.
  */
-export async function deductCoins(
-  userId: string,
-  amount: number
-): Promise<CoinResult> {
+async function deductCoins(userId, amount) {
   try {
-    // Fetch current coins
     const { data: user, error: fetchError } = await supabaseAdmin
       .from('users')
       .select('coins')
@@ -69,7 +54,7 @@ export async function deductCoins(
       return { success: false, newTotal: 0, error: 'User not found' };
     }
 
-    const currentCoins = user.coins as number;
+    const currentCoins = user.coins;
 
     if (currentCoins < amount) {
       return { success: false, newTotal: currentCoins, error: 'Insufficient coins' };
@@ -93,3 +78,5 @@ export async function deductCoins(
     return { success: false, newTotal: 0, error: 'Internal error' };
   }
 }
+
+module.exports = { awardCoins, deductCoins };

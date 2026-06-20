@@ -3,49 +3,21 @@
 // Contoura Labs
 // ============================================================
 
-import { Server, Socket } from 'socket.io';
-import { MatchmakingQueue, QueuedPlayer } from '../services/matchmaking';
-import { createOnlineRoom, processGuess, endGame, forfeitGame, GuessOutcome, EndGameResult } from '../services/gameService';
-import { supabaseAdmin } from '../config/database';
-import { SOCKET_EVENTS, COINS_LOSS } from '@shared/constants';
-import { Room } from '@shared/types';
+const { MatchmakingQueue } = require('../services/matchmaking');
+const { createOnlineRoom, processGuess, endGame, forfeitGame } = require('../services/gameService');
+const { supabaseAdmin } = require('../config/database');
+const { SOCKET_EVENTS, COINS_LOSS } = require('../../shared/constants');
 
 /**
  * In-memory state for tracking active games and socket→user mappings.
  */
-interface ActiveRoom {
-  roomId: string;
-  player1: { userId: string; socketId: string; attempts: number };
-  player2: { userId: string; socketId: string; attempts: number };
-  createdAt: number;
-}
-
 const matchmakingQueue = new MatchmakingQueue();
+const socketUserMap = new Map();
+const userSocketMap = new Map();
+const activeRooms = new Map();
+const userRoomMap = new Map();
 
-/**
- * Map socket.id → userId for quick lookup on disconnect.
- */
-const socketUserMap = new Map<string, string>();
-
-/**
- * Map userId → socket.id for sending events to specific users.
- */
-const userSocketMap = new Map<string, string>();
-
-/**
- * Active rooms keyed by roomId.
- */
-const activeRooms = new Map<string, ActiveRoom>();
-
-/**
- * Map userId → roomId for quick lookup of a user's active game.
- */
-const userRoomMap = new Map<string, string>();
-
-/**
- * Clean up an active room from memory.
- */
-function cleanupRoom(roomId: string): void {
+function cleanupRoom(roomId) {
   const room = activeRooms.get(roomId);
   if (room) {
     userRoomMap.delete(room.player1.userId);
@@ -54,24 +26,17 @@ function cleanupRoom(roomId: string): void {
   }
 }
 
-/**
- * Handle a successful match — create the room and notify both players.
- */
-async function handleMatchFound(
-  io: Server,
-  match: { player1: QueuedPlayer; player2: QueuedPlayer }
-): Promise<void> {
+async function handleMatchFound(io, match) {
   try {
     const { player1, player2 } = match;
 
-    const room: Room = await createOnlineRoom(
+    const room = await createOnlineRoom(
       player1.userId,
       player1.userName,
       player2.userId,
       player2.userName
     );
 
-    // Track the active room
     activeRooms.set(room.id, {
       roomId: room.id,
       player1: { userId: player1.userId, socketId: player1.socketId, attempts: 0 },
@@ -82,23 +47,20 @@ async function handleMatchFound(
     userRoomMap.set(player1.userId, room.id);
     userRoomMap.set(player2.userId, room.id);
 
-    // Notify player 1
     io.to(player1.socketId).emit(SOCKET_EVENTS.MATCH_FOUND, {
       room,
       opponentName: player2.userName,
     });
 
-    // Notify player 2
     io.to(player2.socketId).emit(SOCKET_EVENTS.MATCH_FOUND, {
       room,
       opponentName: player1.userName,
     });
 
-    console.log(`[Match] Created room ${room.id}: ${player1.userName} vs ${player2.userName}`);
+    console.log(`[LuckyGuess Match] Created room ${room.id}: ${player1.userName} vs ${player2.userName}`);
   } catch (error) {
-    console.error('[Match] Failed to create room:', error);
+    console.error('[LuckyGuess Match] Failed to create room:', error);
 
-    // Put players back in the queue
     matchmakingQueue.add({
       userId: match.player1.userId,
       userName: match.player1.userName,
@@ -112,7 +74,6 @@ async function handleMatchFound(
       socketId: match.player2.socketId,
     });
 
-    // Notify both of the error
     io.to(match.player1.socketId).emit(SOCKET_EVENTS.ERROR, {
       message: 'Failed to create game room. Re-queued.',
     });
@@ -123,16 +84,16 @@ async function handleMatchFound(
 }
 
 /**
- * Register all Socket.IO event handlers.
+ * Register all Socket.IO event handlers on a given io instance (or namespace).
  */
-export function registerSocketHandlers(io: Server): void {
-  io.on('connection', (socket: Socket) => {
-    console.log(`[Socket] Connected: ${socket.id}`);
+function registerSocketHandlers(io) {
+  io.on('connection', (socket) => {
+    console.log(`[LuckyGuess Socket] Connected: ${socket.id}`);
 
     // ────────────────────────────────────────────────────────────
     // JOIN QUEUE
     // ────────────────────────────────────────────────────────────
-    socket.on(SOCKET_EVENTS.JOIN_QUEUE, (payload: { userId: string; userName: string; elo: number }) => {
+    socket.on(SOCKET_EVENTS.JOIN_QUEUE, (payload) => {
       const { userId, userName, elo } = payload;
 
       if (!userId || !userName) {
@@ -140,21 +101,16 @@ export function registerSocketHandlers(io: Server): void {
         return;
       }
 
-      // If already in a room, don't allow queueing
       if (userRoomMap.has(userId)) {
         socket.emit(SOCKET_EVENTS.ERROR, { message: 'You are already in a game' });
         return;
       }
 
-      // Store socket↔user mapping
       socketUserMap.set(socket.id, userId);
       userSocketMap.set(userId, socket.id);
-
-      // Remove any previous queue entry for this user (e.g., reconnected)
       matchmakingQueue.remove(userId);
 
-      // Add to matchmaking queue
-      const player: Omit<QueuedPlayer, 'joinedAt'> = {
+      const player = {
         userId,
         userName,
         elo: elo || 1000,
@@ -163,15 +119,13 @@ export function registerSocketHandlers(io: Server): void {
 
       matchmakingQueue.add(player);
 
-      console.log(`[Queue] Player ${userName} (${userId}) joined queue. Queue size: ${matchmakingQueue.size}`);
+      console.log(`[LuckyGuess Queue] Player ${userName} (${userId}) joined. Queue: ${matchmakingQueue.size}`);
 
       socket.emit(SOCKET_EVENTS.QUEUE_JOINED, {
         message: `Joined queue. ${matchmakingQueue.size} player(s) waiting.`,
       });
 
-      // Attempt to find a match immediately
       const match = matchmakingQueue.tryMatch();
-
       if (match) {
         handleMatchFound(io, match);
       }
@@ -180,19 +134,18 @@ export function registerSocketHandlers(io: Server): void {
     // ────────────────────────────────────────────────────────────
     // LEAVE QUEUE
     // ────────────────────────────────────────────────────────────
-    socket.on(SOCKET_EVENTS.LEAVE_QUEUE, (payload: { userId: string }) => {
+    socket.on(SOCKET_EVENTS.LEAVE_QUEUE, (payload) => {
       const { userId } = payload;
-
       const removed = matchmakingQueue.remove(userId);
       if (removed) {
-        console.log(`[Queue] Player ${removed.userName} (${userId}) left queue.`);
+        console.log(`[LuckyGuess Queue] Player ${removed.userName} (${userId}) left queue.`);
       }
     });
 
     // ────────────────────────────────────────────────────────────
     // SUBMIT GUESS
     // ────────────────────────────────────────────────────────────
-    socket.on(SOCKET_EVENTS.SUBMIT_GUESS, async (payload: { roomId: string; guess: number }) => {
+    socket.on(SOCKET_EVENTS.SUBMIT_GUESS, async (payload) => {
       const { roomId, guess } = payload;
       const userId = socketUserMap.get(socket.id);
 
@@ -207,7 +160,6 @@ export function registerSocketHandlers(io: Server): void {
         return;
       }
 
-      // Verify this player is in the room
       const isPlayer1 = room.player1.userId === userId;
       const isPlayer2 = room.player2.userId === userId;
 
@@ -216,28 +168,24 @@ export function registerSocketHandlers(io: Server): void {
         return;
       }
 
-      // Get the opponent's socket for sending opponent attempts
       const opponentSocketId = isPlayer1 ? room.player2.socketId : room.player1.socketId;
       const opponentAttempts = isPlayer1 ? room.player2.attempts : room.player1.attempts;
 
       try {
-        const outcome: GuessOutcome = await processGuess(roomId, userId, guess);
+        const outcome = await processGuess(roomId, userId, guess);
 
-        // Update local tracking
         if (isPlayer1) {
           room.player1.attempts++;
         } else {
           room.player2.attempts++;
         }
 
-        // Send result to the guessing player
         socket.emit(SOCKET_EVENTS.GUESS_RESULT, {
           result: outcome.result,
           attemptsLeft: outcome.attemptsLeft,
           opponentAttempts,
         });
 
-        // Notify opponent of the opponent's attempt count
         if (opponentSocketId) {
           const guesserAttempts = isPlayer1 ? room.player1.attempts : room.player2.attempts;
           io.to(opponentSocketId).emit(SOCKET_EVENTS.GUESS_RESULT, {
@@ -247,21 +195,14 @@ export function registerSocketHandlers(io: Server): void {
           });
         }
 
-        // If correct, end the game
         if (outcome.isCorrect) {
           const winnerId = userId;
           const loserId = isPlayer1 ? room.player2.userId : room.player1.userId;
           const winnerAttempts = isPlayer1 ? room.player1.attempts : room.player2.attempts;
 
           try {
-            const gameResult: EndGameResult = await endGame(
-              roomId,
-              winnerId,
-              loserId,
-              winnerAttempts
-            );
+            const gameResult = await endGame(roomId, winnerId, loserId, winnerAttempts);
 
-            // Notify winner
             socket.emit(SOCKET_EVENTS.GAME_OVER, {
               winner: winnerId,
               coins: gameResult.coinsAwarded,
@@ -269,7 +210,6 @@ export function registerSocketHandlers(io: Server): void {
               matchId: gameResult.matchId,
             });
 
-            // Notify loser
             if (opponentSocketId) {
               io.to(opponentSocketId).emit(SOCKET_EVENTS.GAME_OVER, {
                 winner: winnerId,
@@ -279,24 +219,21 @@ export function registerSocketHandlers(io: Server): void {
               });
             }
 
-            // Clean up room
             cleanupRoom(roomId);
-
-            console.log(`[Game] Room ${roomId} ended. Winner: ${winnerId}`);
+            console.log(`[LuckyGuess Game] Room ${roomId} ended. Winner: ${winnerId}`);
           } catch (endError) {
-            console.error(`[Game] Failed to end game for room ${roomId}:`, endError);
+            console.error(`[LuckyGuess Game] Failed to end game for room ${roomId}:`, endError);
             socket.emit(SOCKET_EVENTS.ERROR, { message: 'Failed to finalize game' });
           }
         }
 
-        // Check if both players used all attempts — it's a draw (both lose, no ELO change)
+        // Check if both players used all attempts — draw
         if (
           !outcome.isCorrect &&
           outcome.attemptsLeft === 0 &&
           room.player1.attempts >= 10 &&
           room.player2.attempts >= 10
         ) {
-          // Both exhausted attempts, nobody wins
           await supabaseAdmin
             .from('rooms')
             .update({ status: 'finished' })
@@ -320,7 +257,7 @@ export function registerSocketHandlers(io: Server): void {
 
           cleanupRoom(roomId);
         }
-      } catch (guessError: unknown) {
+      } catch (guessError) {
         const message = guessError instanceof Error ? guessError.message : 'Guess failed';
         socket.emit(SOCKET_EVENTS.ERROR, { message });
       }
@@ -329,7 +266,7 @@ export function registerSocketHandlers(io: Server): void {
     // ────────────────────────────────────────────────────────────
     // FORFEIT
     // ────────────────────────────────────────────────────────────
-    socket.on(SOCKET_EVENTS.FORFEIT, async (payload: { roomId: string }) => {
+    socket.on(SOCKET_EVENTS.FORFEIT, async (payload) => {
       const { roomId } = payload;
       const userId = socketUserMap.get(socket.id);
 
@@ -349,9 +286,8 @@ export function registerSocketHandlers(io: Server): void {
         : room.player1.socketId;
 
       try {
-        const gameResult: EndGameResult = await forfeitGame(roomId, userId);
+        const gameResult = await forfeitGame(roomId, userId);
 
-        // Notify forfeiter (loser)
         socket.emit(SOCKET_EVENTS.GAME_OVER, {
           winner: gameResult.winnerId,
           coins: 0,
@@ -359,7 +295,6 @@ export function registerSocketHandlers(io: Server): void {
           matchId: gameResult.matchId,
         });
 
-        // Notify opponent (winner)
         if (opponentSocketId) {
           io.to(opponentSocketId).emit(SOCKET_EVENTS.GAME_OVER, {
             winner: gameResult.winnerId,
@@ -370,9 +305,8 @@ export function registerSocketHandlers(io: Server): void {
         }
 
         cleanupRoom(roomId);
-
-        console.log(`[Game] Player ${userId} forfeited room ${roomId}`);
-      } catch (forfeitError: unknown) {
+        console.log(`[LuckyGuess Game] Player ${userId} forfeited room ${roomId}`);
+      } catch (forfeitError) {
         const message = forfeitError instanceof Error ? forfeitError.message : 'Forfeit failed';
         socket.emit(SOCKET_EVENTS.ERROR, { message });
       }
@@ -385,14 +319,10 @@ export function registerSocketHandlers(io: Server): void {
       const userId = socketUserMap.get(socket.id);
 
       if (userId) {
-        // Remove from matchmaking queue
         matchmakingQueue.remove(userId);
-
-        // Clean up socket↔user maps
         userSocketMap.delete(userId);
         socketUserMap.delete(socket.id);
 
-        // If user was in an active room, notify opponent
         const roomId = userRoomMap.get(userId);
         if (roomId) {
           const room = activeRooms.get(roomId);
@@ -408,26 +338,23 @@ export function registerSocketHandlers(io: Server): void {
               });
             }
 
-            // Mark room as abandoned in DB
             supabaseAdmin
               .from('rooms')
               .update({ status: 'abandoned' })
               .eq('id', roomId)
-              .then(() => {
-                // Room marked abandoned
-              })
-              .catch((err: Error) => console.error('Failed to mark room abandoned:', err));
+              .catch(err => console.error('Failed to mark room abandoned:', err));
 
             cleanupRoom(roomId);
-
-            console.log(`[Game] Player ${userId} disconnected from room ${roomId}`);
+            console.log(`[LuckyGuess Game] Player ${userId} disconnected from room ${roomId}`);
           }
         }
 
-        console.log(`[Socket] Disconnected: ${socket.id} (user: ${userId})`);
+        console.log(`[LuckyGuess Socket] Disconnected: ${socket.id} (user: ${userId})`);
       } else {
-        console.log(`[Socket] Disconnected: ${socket.id}`);
+        console.log(`[LuckyGuess Socket] Disconnected: ${socket.id}`);
       }
     });
   });
 }
+
+module.exports = { registerSocketHandlers };

@@ -3,9 +3,9 @@
 // Contoura Labs
 // ============================================================
 
-import { Router } from 'express';
-import { getProfile, getStats, getHistory, getAchievements } from '../controllers/userController';
-import { authMiddleware } from '../middleware/auth';
+const { Router } = require('express');
+const { getProfile, getStats, getHistory, getAchievements } = require('../controllers/userController');
+const { authMiddleware } = require('../middleware/auth');
 
 const router = Router();
 
@@ -14,4 +14,4 @@ router.get('/stats', authMiddleware, getStats);
 router.get('/history', authMiddleware, getHistory);
 router.get('/achievements', authMiddleware, getAchievements);
 
-export default router;
+module.exports = router;

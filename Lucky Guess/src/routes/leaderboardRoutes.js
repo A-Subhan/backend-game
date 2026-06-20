@@ -3,12 +3,12 @@
 // Contoura Labs
 // ============================================================
 
-import { Router } from 'express';
-import { getLeaderboard } from '../controllers/leaderboardController';
-import { optionalAuthMiddleware } from '../middleware/auth';
+const { Router } = require('express');
+const { getLeaderboard } = require('../controllers/leaderboardController');
+const { optionalAuthMiddleware } = require('../middleware/auth');
 
 const router = Router();
 
 router.get('/', optionalAuthMiddleware, getLeaderboard);
 
-export default router;
+module.exports = router;

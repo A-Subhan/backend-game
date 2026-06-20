@@ -3,32 +3,15 @@
 // Contoura Labs
 // ============================================================
 
-import { supabaseAdmin } from '../config/database';
-import { AchievementKey, Achievement } from '@shared/types';
-import { ACHIEVEMENTS } from '@shared/constants';
-
-export interface AchievementContext {
-  totalWins: number;
-  totalMatches: number;
-  streak: number;
-  bestStreak: number;
-  totalCoins: number;
-  lastWinAttempts: number;
-}
-
-export interface AchievementCheckResult {
-  newlyUnlocked: Achievement[];
-}
+const { supabaseAdmin } = require('../config/database');
+const { ACHIEVEMENTS } = require('../../shared/constants');
 
 /**
  * Check all 6 achievement conditions against the user's current context.
  * Insert any newly unlocked achievements and return them.
  */
-export async function checkAndUnlockAchievements(
-  userId: string,
-  context: AchievementContext
-): Promise<AchievementCheckResult> {
-  const newlyUnlocked: Achievement[] = [];
+async function checkAndUnlockAchievements(userId, context) {
+  const newlyUnlocked = [];
 
   // Fetch already-unlocked keys for this user
   const { data: existing, error: fetchError } = await supabaseAdmin
@@ -42,11 +25,11 @@ export async function checkAndUnlockAchievements(
   }
 
   const unlockedKeys = new Set(
-    (existing || []).map((a: { achievement_key: string }) => a.achievement_key)
+    (existing || []).map(a => a.achievement_key)
   );
 
   // Define conditions for each achievement
-  const conditions: Record<AchievementKey, () => boolean> = {
+  const conditions = {
     first_win: () => context.totalWins >= 1,
     lucky_guess: () => context.lastWinAttempts === 1,
     sharpshooter: () => context.lastWinAttempts >= 1 && context.lastWinAttempts <= 3,
@@ -61,7 +44,6 @@ export async function checkAndUnlockAchievements(
 
     const checker = conditions[def.key];
     if (checker && checker()) {
-      // Unlock this achievement
       const { error: insertError } = await supabaseAdmin
         .from('user_achievements')
         .insert({
@@ -87,3 +69,5 @@ export async function checkAndUnlockAchievements(
 
   return { newlyUnlocked };
 }
+
+module.exports = { checkAndUnlockAchievements };

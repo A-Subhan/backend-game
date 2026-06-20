@@ -3,13 +3,6 @@
 // Contoura Labs
 // ============================================================
 
-export interface EloResult {
-  newWinnerElo: number;
-  newLoserElo: number;
-  winnerChange: number;
-  loserChange: number;
-}
-
 /**
  * Calculate new ELO ratings after a match.
  *
@@ -19,11 +12,7 @@ export interface EloResult {
  *
  * Winner actual score = 1, Loser actual score = 0.
  */
-export function calculateElo(
-  winnerElo: number,
-  loserElo: number,
-  K: number = 32
-): EloResult {
+function calculateElo(winnerElo, loserElo, K = 32) {
   const expectedWinner = 1 / (1 + Math.pow(10, (loserElo - winnerElo) / 400));
   const expectedLoser = 1 / (1 + Math.pow(10, (winnerElo - loserElo) / 400));
 
@@ -31,7 +20,7 @@ export function calculateElo(
   const loserChange = Math.round(K * (0 - expectedLoser));
 
   const newWinnerElo = winnerElo + winnerChange;
-  const newLoserElo = Math.max(0, loserElo + loserChange); // Floor at 0
+  const newLoserElo = Math.max(0, loserElo + loserChange);
 
   return {
     newWinnerElo,
@@ -40,3 +29,5 @@ export function calculateElo(
     loserChange,
   };
 }
+
+module.exports = { calculateElo };

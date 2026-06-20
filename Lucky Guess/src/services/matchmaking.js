@@ -3,31 +3,19 @@
 // Contoura Labs
 // ============================================================
 
-export interface QueuedPlayer {
-  userId: string;
-  userName: string;
-  elo: number;
-  socketId: string;
-  joinedAt: number;
-}
-
-export interface MatchPair {
-  player1: QueuedPlayer;
-  player2: QueuedPlayer;
-}
-
 /**
  * Simple FIFO matchmaking queue.
  * When 2+ players are in the queue, pairs the first two.
  */
-export class MatchmakingQueue {
-  private queue: Map<string, QueuedPlayer> = new Map();
+class MatchmakingQueue {
+  constructor() {
+    this.queue = new Map();
+  }
 
   /**
    * Add a player to the matchmaking queue.
-   * If the player is already in the queue, this is a no-op.
    */
-  add(player: Omit<QueuedPlayer, 'joinedAt'>): void {
+  add(player) {
     if (this.queue.has(player.userId)) {
       return; // Already queued
     }
@@ -41,7 +29,7 @@ export class MatchmakingQueue {
   /**
    * Remove a player from the queue.
    */
-  remove(userId: string): QueuedPlayer | undefined {
+  remove(userId) {
     const player = this.queue.get(userId);
     if (player) {
       this.queue.delete(userId);
@@ -53,7 +41,7 @@ export class MatchmakingQueue {
    * Try to find a match. If 2+ players are in queue,
    * pair the first two (FIFO).
    */
-  tryMatch(): MatchPair | null {
+  tryMatch() {
     if (this.queue.size < 2) {
       return null;
     }
@@ -72,28 +60,30 @@ export class MatchmakingQueue {
   /**
    * Check if a user is currently in the queue.
    */
-  has(userId: string): boolean {
+  has(userId) {
     return this.queue.has(userId);
   }
 
   /**
    * Get the current queue size.
    */
-  get size(): number {
+  get size() {
     return this.queue.size;
   }
 
   /**
    * Get all queued players (for debugging/monitoring).
    */
-  getAll(): QueuedPlayer[] {
+  getAll() {
     return Array.from(this.queue.values());
   }
 
   /**
    * Clear the entire queue.
    */
-  clear(): void {
+  clear() {
     this.queue.clear();
   }
 }
+
+module.exports = { MatchmakingQueue };

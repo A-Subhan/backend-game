@@ -3,19 +3,16 @@
 // Contoura Labs
 // ============================================================
 
-import { Request, Response } from 'express';
-import { OAuth2Client } from 'google-auth-library';
-import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
-import { supabaseAdmin } from '../config/database';
-import { env } from '../config/env';
-import { ApiResponse, User } from '@shared/types';
-import { ELO_INITIAL } from '@shared/constants';
-import { AuthRequest } from '../middleware/auth';
+const { OAuth2Client } = require('google-auth-library');
+const jwt = require('jsonwebtoken');
+const { v4: uuidv4 } = require('uuid');
+const { supabaseAdmin } = require('../config/database');
+const { env } = require('../config/env');
+const { ELO_INITIAL } = require('../../shared/constants');
 
 const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
 
-function generateJwt(userId: string, isGuest: boolean): string {
+function generateJwt(userId, isGuest) {
   return jwt.sign(
     { userId, isGuest },
     env.JWT_SECRET,
@@ -25,21 +22,19 @@ function generateJwt(userId: string, isGuest: boolean): string {
 
 /**
  * POST /auth/google/callback
- * Verify Google ID token, upsert user, return JWT.
  */
-export async function googleLogin(req: Request, res: Response): Promise<void> {
+async function googleLogin(req, res) {
   try {
-    const { token } = req.body as { token?: string };
+    const { token } = req.body;
 
     if (!token) {
       res.status(400).json({
         success: false,
         error: 'Google ID token is required',
-      } satisfies ApiResponse);
+      });
       return;
     }
 
-    // Verify the Google token
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
       audience: env.GOOGLE_CLIENT_ID,
@@ -50,7 +45,7 @@ export async function googleLogin(req: Request, res: Response): Promise<void> {
       res.status(400).json({
         success: false,
         error: 'Invalid Google token payload',
-      } satisfies ApiResponse);
+      });
       return;
     }
 
@@ -59,17 +54,15 @@ export async function googleLogin(req: Request, res: Response): Promise<void> {
     const name = payload.name || email.split('@')[0];
     const avatarUrl = payload.picture || null;
 
-    // Upsert user into Supabase
     const { data: existingUser, error: fetchError } = await supabaseAdmin
       .from('users')
       .select('*')
       .eq('google_id', googleId)
       .single();
 
-    let user: User;
+    let user;
 
     if (fetchError || !existingUser) {
-      // Insert new user
       const newUserId = uuidv4();
       const { data: insertedUser, error: insertError } = await supabaseAdmin
         .from('users')
@@ -96,14 +89,13 @@ export async function googleLogin(req: Request, res: Response): Promise<void> {
         res.status(500).json({
           success: false,
           error: 'Failed to create user account',
-        } satisfies ApiResponse);
+        });
         return;
       }
 
-      user = insertedUser as User;
+      user = insertedUser;
     } else {
-      // Update existing user's name/avatar if changed
-      const updates: Record<string, unknown> = {};
+      const updates = {};
       if (payload.name && payload.name !== existingUser.name) updates.name = payload.name;
       if (payload.picture && payload.picture !== existingUser.avatar_url) updates.avatar_url = payload.picture;
 
@@ -116,12 +108,12 @@ export async function googleLogin(req: Request, res: Response): Promise<void> {
           .single();
 
         if (!updateError && updatedUser) {
-          user = updatedUser as User;
+          user = updatedUser;
         } else {
-          user = existingUser as User;
+          user = existingUser;
         }
       } else {
-        user = existingUser as User;
+        user = existingUser;
       }
     }
 
@@ -133,23 +125,21 @@ export async function googleLogin(req: Request, res: Response): Promise<void> {
         token: jwtToken,
         user,
       },
-    } satisfies ApiResponse);
+    });
   } catch (error) {
     console.error('Google login error:', error);
     res.status(500).json({
       success: false,
       error: 'Authentication failed',
-    } satisfies ApiResponse);
+    });
   }
 }
 
 /**
  * POST /auth/guest
- * Create a guest user account, return JWT with isGuest: true.
  */
-export async function guestLogin(req: Request, res: Response): Promise<void> {
+async function guestLogin(req, res) {
   try {
-    // Generate a random guest name
     const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
     const guestName = `Guest_${randomSuffix}`;
 
@@ -179,7 +169,7 @@ export async function guestLogin(req: Request, res: Response): Promise<void> {
       res.status(500).json({
         success: false,
         error: 'Failed to create guest account',
-      } satisfies ApiResponse);
+      });
       return;
     }
 
@@ -189,29 +179,28 @@ export async function guestLogin(req: Request, res: Response): Promise<void> {
       success: true,
       data: {
         token: jwtToken,
-        user: user as User,
+        user,
       },
-    } satisfies ApiResponse);
+    });
   } catch (error) {
     console.error('Guest login error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to create guest account',
-    } satisfies ApiResponse);
+    });
   }
 }
 
 /**
  * GET /auth/me
- * Return the current authenticated user's profile.
  */
-export async function getMe(req: AuthRequest, res: Response): Promise<void> {
+async function getMe(req, res) {
   try {
     if (!req.user) {
       res.status(401).json({
         success: false,
         error: 'Not authenticated',
-      } satisfies ApiResponse);
+      });
       return;
     }
 
@@ -225,31 +214,31 @@ export async function getMe(req: AuthRequest, res: Response): Promise<void> {
       res.status(404).json({
         success: false,
         error: 'User not found',
-      } satisfies ApiResponse);
+      });
       return;
     }
 
     res.json({
       success: true,
-      data: user as User,
-    } satisfies ApiResponse);
+      data: user,
+    });
   } catch (error) {
     console.error('Get me error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch user profile',
-    } satisfies ApiResponse);
+    });
   }
 }
 
 /**
  * POST /auth/logout
- * Client-side token removal. No server-side session to invalidate
- * since we use stateless JWT.
  */
-export async function logout(_req: AuthRequest, res: Response): Promise<void> {
+async function logout(req, res) {
   res.json({
     success: true,
     data: { message: 'Logged out successfully' },
-  } satisfies ApiResponse);
+  });
 }
+
+module.exports = { googleLogin, guestLogin, getMe, logout };
