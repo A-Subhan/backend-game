@@ -1,77 +1,85 @@
 // ============================================================
 // Lucky Guess — Auth Middleware
 // Contoura Labs
+//
+// JWT payload shape: { userId: string, isGuest: boolean, iat, exp }
 // ============================================================
 
 const jwt = require('jsonwebtoken');
 const { env } = require('../config/env');
 
+function extractToken(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  return authHeader.substring(7);
+}
+
+/**
+ * Strict REST auth — rejects requests without a valid JWT.
+ */
 function authMiddleware(req, res, next) {
+  const token = extractToken(req);
+  if (!token) {
+    return res.status(401).json({ error: 'No authorization token provided' });
+  }
+
   try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).json({
-        success: false,
-        error: 'No authorization token provided',
-      });
-      return;
-    }
-
-    const token = authHeader.substring(7);
-
-    if (!token) {
-      res.status(401).json({
-        success: false,
-        error: 'Empty authorization token',
-      });
-      return;
-    }
-
     const decoded = jwt.verify(token, env.JWT_SECRET);
-
     req.user = {
       userId: decoded.userId,
       isGuest: decoded.isGuest ?? false,
     };
-
     next();
   } catch (error) {
     if (error instanceof jwt.JsonWebTokenError) {
-      res.status(401).json({
-        success: false,
-        error: 'Invalid or expired token',
-      });
-      return;
+      return res.status(401).json({ error: 'Invalid or expired token' });
     }
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error during authentication',
-    });
+    console.error('[Auth] Unexpected error:', error);
+    return res.status(500).json({ error: 'Authentication failed' });
   }
 }
 
 /**
- * Optional auth — attaches user if token present, but does not block.
+ * Optional auth — attaches user if a valid token is present,
+ * but does not reject the request if absent.
  */
-function optionalAuthMiddleware(req, res, next) {
-  try {
-    const authHeader = req.headers.authorization;
-
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
-      if (token) {
-        const decoded = jwt.verify(token, env.JWT_SECRET);
-        req.user = {
-          userId: decoded.userId,
-          isGuest: decoded.isGuest ?? false,
-        };
-      }
+function optionalAuthMiddleware(req, _res, next) {
+  const token = extractToken(req);
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, env.JWT_SECRET);
+      req.user = {
+        userId: decoded.userId,
+        isGuest: decoded.isGuest ?? false,
+      };
+    } catch {
+      // Token invalid — proceed without user
     }
-  } catch {
-    // Token invalid or expired — proceed without user
   }
   next();
 }
 
-module.exports = { authMiddleware, optionalAuthMiddleware };
+/**
+ * Socket.IO auth middleware. The frontend connects with
+ * `auth: { token }` in the handshake. On success, the socket
+ * gains `socket.userId` and `socket.isGuest`.
+ */
+function verifySocketToken(socket, next) {
+  const token = socket.handshake.auth?.token ||
+                socket.handshake.headers?.authorization?.replace('Bearer ', '');
+
+  if (!token) {
+    return next(new Error('Authentication required'));
+  }
+
+  try {
+    const decoded = jwt.verify(token, env.JWT_SECRET);
+    socket.userId = decoded.userId;
+    socket.isGuest = decoded.isGuest ?? false;
+    next();
+  } catch (err) {
+    return next(new Error('Invalid or expired token'));
+  }
+}
+
+module.exports = { authMiddleware, optionalAuthMiddleware, verifySocketToken };

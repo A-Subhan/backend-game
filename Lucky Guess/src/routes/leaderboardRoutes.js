@@ -9,6 +9,7 @@ const { optionalAuthMiddleware } = require('../middleware/auth');
 
 const router = Router();
 
-router.get('/', optionalAuthMiddleware, getLeaderboard);
+// GET /leaderboard — top players by ELO
+router.get('/leaderboard', optionalAuthMiddleware, getLeaderboard);
 
 module.exports = router;

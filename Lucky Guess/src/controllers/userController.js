@@ -1,58 +1,81 @@
 // ============================================================
 // Lucky Guess — User Controller
 // Contoura Labs
+//
+// Response shapes match the frontend:
+//   - getProfile     → { ...user, achievements, match_history }
+//   - getStats       → { ...stats, win_rate }
+//   - getHistory     → { matches: [...] }
+//   - getAchievements→ { achievements: [...] }
 // ============================================================
 
-const { supabaseAdmin } = require('../config/database');
+const { supabaseAdmin, supabaseUnavailable } = require('../config/database');
 const { ACHIEVEMENTS } = require('../../shared/constants');
+const { shapeUser } = require('./authController');
+
+/**
+ * Build the achievements list for a user, merging the static
+ * definitions with the user's unlocked_at timestamps.
+ */
+function buildAchievements(userId, unlockedRows) {
+  const unlockedMap = new Map(
+    (unlockedRows || []).map(a => [a.achievement_key, a.unlocked_at])
+  );
+
+  return ACHIEVEMENTS.map(def => ({
+    id: `${userId}_${def.key}`,
+    key: def.key,
+    title: def.title,
+    description: def.description,
+    icon: def.icon,
+    unlocked_at: unlockedMap.get(def.key) || null,
+  }));
+}
 
 /**
  * GET /user/profile
+ * Response: { ...user, achievements, match_history }
  */
 async function getProfile(req, res) {
+  if (supabaseUnavailable(res)) return;
+
   try {
     if (!req.user) {
-      res.status(401).json({ success: false, error: 'Not authenticated' });
-      return;
+      return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const { data: user, error: userError } = await supabaseAdmin
+    const { data: userRow, error: userError } = await supabaseAdmin
       .from('users')
       .select('*')
       .eq('id', req.user.userId)
-      .single();
+      .maybeSingle();
 
-    if (userError || !user) {
-      res.status(404).json({ success: false, error: 'User not found' });
-      return;
+    if (userError || !userRow) {
+      return res.status(404).json({ error: 'User not found' });
     }
 
-    // Fetch unlocked achievements for this user
-    const { data: unlockedAchievements } = await supabaseAdmin
+    // Fetch unlocked achievements — table is `user_achievements`
+    // (see schema seed function). Fall back to `achievements` table
+    // for older installations.
+    let unlockedRows = [];
+    const { data: uaRows } = await supabaseAdmin
       .from('user_achievements')
       .select('achievement_key, unlocked_at')
       .eq('user_id', req.user.userId);
 
-    const unlockedKeys = new Set(
-      (unlockedAchievements || []).map(a => a.achievement_key)
-    );
+    if (uaRows && uaRows.length > 0) {
+      unlockedRows = uaRows;
+    } else {
+      const { data: aRows } = await supabaseAdmin
+        .from('achievements')
+        .select('key, unlocked_at')
+        .eq('user_id', req.user.userId);
+      if (aRows) unlockedRows = aRows.map(r => ({ achievement_key: r.key, unlocked_at: r.unlocked_at }));
+    }
 
-    const achievements = ACHIEVEMENTS.map((def) => {
-      const unlocked = unlockedKeys.has(def.key);
-      const userAch = (unlockedAchievements || []).find(
-        a => a.achievement_key === def.key
-      );
-      return {
-        id: `${req.user.userId}_${def.key}`,
-        key: def.key,
-        title: def.title,
-        description: def.description,
-        icon: def.icon,
-        unlocked_at: userAch ? userAch.unlocked_at : null,
-      };
-    });
+    const achievements = buildAchievements(req.user.userId, unlockedRows);
 
-    // Fetch recent match history (last 20)
+    // Recent match history (last 20)
     const { data: matchRecords } = await supabaseAdmin
       .from('matches')
       .select('*')
@@ -60,66 +83,60 @@ async function getProfile(req, res) {
       .order('created_at', { ascending: false })
       .limit(20);
 
-    res.json({
-      success: true,
-      data: {
-        ...user,
-        achievements,
-        match_history: matchRecords || [],
-      },
+    return res.json({
+      ...shapeUser(userRow),
+      achievements,
+      match_history: matchRecords || [],
     });
   } catch (error) {
-    console.error('Get profile error:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch profile' });
+    console.error('[User] Get profile error:', error);
+    return res.status(500).json({ error: 'Failed to fetch profile' });
   }
 }
 
 /**
  * GET /user/stats
+ * Response: { ...stats, win_rate }
  */
 async function getStats(req, res) {
+  if (supabaseUnavailable(res)) return;
+
   try {
     if (!req.user) {
-      res.status(401).json({ success: false, error: 'Not authenticated' });
-      return;
+      return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const { data: user, error } = await supabaseAdmin
+    const { data: row, error } = await supabaseAdmin
       .from('users')
       .select('elo, total_wins, total_losses, total_matches, streak, best_streak, coins, created_at')
       .eq('id', req.user.userId)
-      .single();
+      .maybeSingle();
 
-    if (error || !user) {
-      res.status(404).json({ success: false, error: 'User not found' });
-      return;
+    if (error || !row) {
+      return res.status(404).json({ error: 'User not found' });
     }
 
-    const winRate = user.total_matches > 0
-      ? Math.round((user.total_wins / user.total_matches) * 100)
+    const winRate = row.total_matches > 0
+      ? Math.round((row.total_wins / row.total_matches) * 100)
       : 0;
 
-    res.json({
-      success: true,
-      data: {
-        ...user,
-        win_rate: winRate,
-      },
-    });
+    return res.json({ ...row, win_rate: winRate });
   } catch (error) {
-    console.error('Get stats error:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch stats' });
+    console.error('[User] Get stats error:', error);
+    return res.status(500).json({ error: 'Failed to fetch stats' });
   }
 }
 
 /**
- * GET /user/history
+ * GET /user/history?page=1&limit=20
+ * Response: { matches: [...], pagination: {...} }
  */
 async function getHistory(req, res) {
+  if (supabaseUnavailable(res)) return;
+
   try {
     if (!req.user) {
-      res.status(401).json({ success: false, error: 'Not authenticated' });
-      return;
+      return res.status(401).json({ error: 'Not authenticated' });
     }
 
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -134,9 +151,8 @@ async function getHistory(req, res) {
       .range(offset, offset + limit - 1);
 
     if (matchError) {
-      console.error('Fetch match history error:', matchError);
-      res.status(500).json({ success: false, error: 'Failed to fetch match history' });
-      return;
+      console.error('[User] Fetch match history error:', matchError);
+      return res.status(500).json({ error: 'Failed to fetch match history' });
     }
 
     const { count } = await supabaseAdmin
@@ -144,66 +160,55 @@ async function getHistory(req, res) {
       .select('*', { count: 'exact', head: true })
       .or(`player1_id.eq.${req.user.userId},player2_id.eq.${req.user.userId}`);
 
-    res.json({
-      success: true,
-      data: {
-        matches: matches || [],
-        pagination: {
-          page,
-          limit,
-          total: count || 0,
-          totalPages: Math.ceil((count || 0) / limit),
-        },
+    return res.json({
+      matches: matches || [],
+      pagination: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
       },
     });
   } catch (error) {
-    console.error('Get history error:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch match history' });
+    console.error('[User] Get history error:', error);
+    return res.status(500).json({ error: 'Failed to fetch match history' });
   }
 }
 
 /**
  * GET /user/achievements
+ * Response: { achievements: [...] }
  */
 async function getAchievements(req, res) {
+  if (supabaseUnavailable(res)) return;
+
   try {
     if (!req.user) {
-      res.status(401).json({ success: false, error: 'Not authenticated' });
-      return;
+      return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const { data: unlockedAchievements, error: achError } = await supabaseAdmin
+    let unlockedRows = [];
+    const { data: uaRows, error: uaError } = await supabaseAdmin
       .from('user_achievements')
       .select('achievement_key, unlocked_at')
       .eq('user_id', req.user.userId);
 
-    if (achError) {
-      console.error('Fetch achievements error:', achError);
-      res.status(500).json({ success: false, error: 'Failed to fetch achievements' });
-      return;
+    if (!uaError && uaRows && uaRows.length > 0) {
+      unlockedRows = uaRows;
+    } else {
+      const { data: aRows } = await supabaseAdmin
+        .from('achievements')
+        .select('key, unlocked_at')
+        .eq('user_id', req.user.userId);
+      if (aRows) unlockedRows = aRows.map(r => ({ achievement_key: r.key, unlocked_at: r.unlocked_at }));
     }
 
-    const unlockedMap = new Map(
-      (unlockedAchievements || []).map(a => [a.achievement_key, a.unlocked_at])
-    );
-
-    const achievements = ACHIEVEMENTS.map((def) => ({
-      id: `${req.user.userId}_${def.key}`,
-      key: def.key,
-      title: def.title,
-      description: def.description,
-      icon: def.icon,
-      unlocked_at: unlockedMap.get(def.key) || null,
-    }));
-
-    res.json({
-      success: true,
-      data: achievements,
-    });
+    const achievements = buildAchievements(req.user.userId, unlockedRows);
+    return res.json({ achievements });
   } catch (error) {
-    console.error('Get achievements error:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch achievements' });
+    console.error('[User] Get achievements error:', error);
+    return res.status(500).json({ error: 'Failed to fetch achievements' });
   }
 }
 
-module.exports = { getProfile, getStats, getHistory, getAchievements };
+module.exports = { getProfile, getStats, getHistory, getAchievements, buildAchievements };

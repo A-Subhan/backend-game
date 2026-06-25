@@ -1,11 +1,14 @@
 {
-  "name": "number-guessing-server",
-  "version": "1.0.0",
-  "description": "Backend for Number Guessing Game by Contoura Labs",
+  "name": "lucky-guess-backend",
+  "version": "2.0.0",
+  "description": "Backend for Lucky Guess — a multiplayer number guessing game by Contoura Labs",
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",

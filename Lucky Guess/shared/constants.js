@@ -67,11 +67,12 @@ const STORAGE_KEYS = {
 };
 
 /* ── API Endpoints ────────────────────────────────────── */
+// MUST match the frontend's `shared/constants.ts` API map.
 const API = {
   BASE_URL: '',
   AUTH: {
     GOOGLE_CALLBACK:  '/auth/google/callback',
-    GUEST_LOGIN:      '/auth/guest',
+    GUEST_LOGIN:      '/guest',
     ME:               '/auth/me',
     LOGOUT:           '/auth/logout',
   },
