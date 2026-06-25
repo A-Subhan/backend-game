@@ -9,16 +9,36 @@
 //   - logout          → { message }
 // ============================================================
 
-const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const { supabaseAdmin, supabaseUnavailable } = require('../config/database');
 const { env } = require('../config/env');
 const { ELO_INITIAL } = require('../../shared/constants');
 
-let googleClient = null;
-if (env.GOOGLE_CLIENT_ID) {
-  googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
+// Lazy-load google-auth-library so a broken install doesn't crash
+// the whole authController module (and thus the whole server).
+// Google login is optional — guest login works without it.
+let _googleClient = null;
+let _googleClientInitAttempted = false;
+let _googleClientError = null;
+
+function getGoogleClient() {
+  if (_googleClientInitAttempted) return _googleClient;
+  _googleClientInitAttempted = true;
+
+  if (!env.GOOGLE_CLIENT_ID) {
+    return null; // Google login not configured — that's fine
+  }
+
+  try {
+    const { OAuth2Client } = require('google-auth-library');
+    _googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
+    console.log('[LuckyGuess] Google OAuth client initialized');
+  } catch (err) {
+    _googleClientError = err;
+    console.error('[LuckyGuess] FAILED to initialize Google OAuth client:', err.message);
+  }
+  return _googleClient;
 }
 
 function generateJwt(userId, isGuest) {
@@ -59,8 +79,12 @@ function shapeUser(row) {
  */
 async function googleLogin(req, res) {
   if (supabaseUnavailable(res)) return;
+  const googleClient = getGoogleClient();
   if (!googleClient) {
-    return res.status(503).json({ error: 'Google Sign-In is not configured on the server' });
+    const detail = _googleClientError
+      ? `Google Sign-In initialization failed: ${_googleClientError.message}`
+      : 'Google Sign-In is not configured on the server (GOOGLE_CLIENT_ID env var not set)';
+    return res.status(503).json({ error: detail });
   }
 
   try {
