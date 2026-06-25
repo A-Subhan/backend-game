@@ -1,6 +1,6 @@
 {
   "name": "lucky-guess-backend",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Backend for Lucky Guess — a multiplayer number guessing game by Contoura Labs",
   "main": "app.js",
   "scripts": {

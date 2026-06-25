@@ -69,7 +69,7 @@ Required for full functionality:
 
 ### 3. Set up the database
 
-Run the SQL in [`Lucky Guess/Config/supabase-schema.sql`](./Lucky%20Guess/Config/supabase-schema.sql)
+Run the SQL in [`Config/supabase-schema.sql`](./Config/supabase-schema.sql)
 in your Supabase SQL editor. This creates the `users`, `matches`,
 `rooms`, `achievements`, and `user_achievements` tables with RLS
 policies and the seed trigger for new-user achievements.
@@ -182,34 +182,33 @@ backend/
 ├── app.js                       # Express + Socket.IO entry point
 ├── package.json
 ├── .env.example
-└── Lucky Guess/
-    ├── index.js                 # Mounts routes + socket on the app/io
-    ├── shared/constants.js      # Game configs, achievements, socket events
-    ├── Config/
-    │   ├── SETUP.md
-    │   └── supabase-schema.sql  # Run this in Supabase SQL editor
-    └── src/
-        ├── config/
-        │   ├── env.js           # Lenient env loader
-        │   └── database.js      # Supabase admin + anon clients
-        ├── middleware/auth.js   # REST + Socket.IO JWT auth
-        ├── routes/
-        │   ├── authRoutes.js
-        │   ├── userRoutes.js
-        │   └── leaderboardRoutes.js
-        ├── controllers/
-        │   ├── authController.js
-        │   ├── userController.js
-        │   └── leaderboardController.js
-        ├── services/
-        │   ├── matchmaking.js   # FIFO queue
-        │   ├── gameService.js   # Room create / guess / endGame / forfeit
-        │   ├── eloService.js    # ELO calculation
-        │   ├── coinService.js   # Award / deduct coins
-        │   └── achievementService.js
-        └── socket/
-            ├── index.js         # Wires JWT auth + handlers
-            └── handlers.js      # All socket event handlers
+├── shared/
+│   └── constants.js             # Game configs, achievements, socket events
+├── Config/
+│   ├── SETUP.md
+│   └── supabase-schema.sql      # Run this in Supabase SQL editor
+└── src/
+    ├── config/
+    │   ├── env.js               # Lenient env loader
+    │   └── database.js          # Supabase admin + anon clients
+    ├── middleware/auth.js       # REST + Socket.IO JWT auth
+    ├── routes/
+    │   ├── authRoutes.js
+    │   ├── userRoutes.js
+    │   └── leaderboardRoutes.js
+    ├── controllers/
+    │   ├── authController.js
+    │   ├── userController.js
+    │   └── leaderboardController.js
+    ├── services/
+    │   ├── matchmaking.js       # FIFO queue
+    │   ├── gameService.js       # Room create / guess / endGame / forfeit
+    │   ├── eloService.js        # ELO calculation
+    │   ├── coinService.js       # Award / deduct coins
+    │   └── achievementService.js
+    └── socket/
+        ├── index.js             # Wires JWT auth + handlers
+        └── handlers.js          # All socket event handlers
 ```
 
 ---

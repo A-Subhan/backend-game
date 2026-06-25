@@ -14,14 +14,53 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 
-const luckyGuess = require('./Lucky Guess');
+// ── Load route handlers + socket initializer ────────────
+// Each require is wrapped in its own try/catch so a failure
+// in one module doesn't prevent the others from loading.
+// If a module fails to load, we log the error and skip
+// mounting just that group — the rest of the server still works.
+let authRoutes = null;
+let userRoutes = null;
+let leaderboardRoutes = null;
+let initializeSocket = null;
+
+try {
+  authRoutes = require('./src/routes/authRoutes');
+  console.log('[Startup] Loaded authRoutes');
+} catch (err) {
+  console.error('[Startup] FAILED to load authRoutes:', err.message);
+  console.error(err.stack);
+}
+
+try {
+  userRoutes = require('./src/routes/userRoutes');
+  console.log('[Startup] Loaded userRoutes');
+} catch (err) {
+  console.error('[Startup] FAILED to load userRoutes:', err.message);
+  console.error(err.stack);
+}
+
+try {
+  leaderboardRoutes = require('./src/routes/leaderboardRoutes');
+  console.log('[Startup] Loaded leaderboardRoutes');
+} catch (err) {
+  console.error('[Startup] FAILED to load leaderboardRoutes:', err.message);
+  console.error(err.stack);
+}
+
+try {
+  const socketModule = require('./src/socket');
+  initializeSocket = socketModule.initializeSocket;
+  console.log('[Startup] Loaded socket module');
+} catch (err) {
+  console.error('[Startup] FAILED to load socket module:', err.message);
+  console.error(err.stack);
+}
 
 const app = express();
 const server = http.createServer(app);
 
 // ── CORS ────────────────────────────────────────────────
-// Allow any origin — the auth model is Bearer-token based,
-// not cookie based, so wildcard CORS is safe here.
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -37,10 +76,25 @@ app.use((req, _res, next) => {
   next();
 });
 
-// ── REST Routes ─────────────────────────────────────────
-// Mounted at root — frontend calls /guest, /auth/me,
-// /user/profile, /leaderboard, etc. directly.
-luckyGuess.mountRoutes(app);
+// ── REST Routes — mounted at root paths ─────────────────
+// Frontend calls /guest, /auth/me, /user/profile, /leaderboard, etc.
+const registeredRoutes = [];
+
+if (authRoutes) {
+  app.use('/', authRoutes);
+  registeredRoutes.push('auth: POST /guest, POST /auth/google/callback, GET /auth/me, POST /auth/logout');
+  console.log('[Startup] Mounted auth routes at /');
+}
+if (userRoutes) {
+  app.use('/', userRoutes);
+  registeredRoutes.push('user: GET /user/profile, GET /user/stats, GET /user/history, GET /user/achievements');
+  console.log('[Startup] Mounted user routes at /');
+}
+if (leaderboardRoutes) {
+  app.use('/', leaderboardRoutes);
+  registeredRoutes.push('leaderboard: GET /leaderboard');
+  console.log('[Startup] Mounted leaderboard routes at /');
+}
 
 // ── Health check ────────────────────────────────────────
 app.get('/health', (_req, res) => {
@@ -48,7 +102,43 @@ app.get('/health', (_req, res) => {
     status: 'ok',
     time: new Date().toISOString(),
     service: 'lucky-guess-backend',
-    version: '2.0.0',
+    version: '2.1.0',
+    routesLoaded: {
+      auth: !!authRoutes,
+      user: !!userRoutes,
+      leaderboard: !!leaderboardRoutes,
+      socket: !!initializeSocket,
+    },
+  });
+});
+
+// ── Debug: list all registered routes ───────────────────
+// Useful for diagnosing 404s on Railway / Render / etc.
+app.get('/debug/routes', (_req, res) => {
+  const routes = [];
+  function walk(stack, basePath = '') {
+    for (const layer of stack) {
+      if (layer.route) {
+        const methods = Object.keys(layer.route.methods).map(m => m.toUpperCase());
+        routes.push({ path: basePath + layer.route.path, methods });
+      } else if (layer.name === 'router' && layer.handle.stack) {
+        // Express router — recurse with the router's prefix (we can't easily read it,
+        // so we just walk its children with the same base path since we mount at '/')
+        walk(layer.handle.stack, basePath);
+      }
+    }
+  }
+  walk(app._router ? app._router.stack : app.router.stack);
+  res.json({
+    total: routes.length,
+    routes,
+    registeredGroups: registeredRoutes,
+    modulesLoaded: {
+      authRoutes: !!authRoutes,
+      userRoutes: !!userRoutes,
+      leaderboardRoutes: !!leaderboardRoutes,
+      socket: !!initializeSocket,
+    },
   });
 });
 
@@ -57,12 +147,13 @@ app.get('/', (_req, res) => {
   res.json({
     name: 'Lucky Guess Backend',
     by: 'Contoura Labs',
-    version: '2.0.0',
+    version: '2.1.0',
     endpoints: {
       auth: ['/auth/google/callback', '/guest', '/auth/me', '/auth/logout'],
       user: ['/user/profile', '/user/stats', '/user/history', '/user/achievements'],
       leaderboard: ['/leaderboard'],
       health: ['/health'],
+      debug: ['/debug/routes'],
     },
     socket: {
       namespace: '/',
@@ -73,14 +164,17 @@ app.get('/', (_req, res) => {
 
 // ── 404 ─────────────────────────────────────────────────
 app.use((req, res) => {
-  res.status(404).json({ error: `Route not found: ${req.method} ${req.url}` });
+  res.status(404).json({
+    error: `Route not found: ${req.method} ${req.url}`,
+    hint: 'Visit /debug/routes to see all registered routes, or /health for server status.',
+  });
 });
 
 // ── Global error handler ────────────────────────────────
 app.use((err, _req, res, _next) => {
   console.error('[Unhandled Error]', err);
   if (res.headersSent) return;
-  res.status(500).json({ error: 'Internal server error' });
+  res.status(500).json({ error: 'Internal server error', detail: err.message });
 });
 
 // ── Socket.IO (default namespace, JWT auth) ─────────────
@@ -93,10 +187,17 @@ const io = new Server(server, {
   pingInterval: 25000,
 });
 
-// Wire up Lucky Guess socket handlers on the default namespace.
-// The frontend's `socketService.ts` connects to the default
-// namespace with `auth: { token }`.
-luckyGuess.mountSocket(io);
+if (initializeSocket) {
+  try {
+    initializeSocket(io);
+    console.log('[Startup] Socket.IO handlers registered on default namespace');
+  } catch (err) {
+    console.error('[Startup] FAILED to initialize socket handlers:', err.message);
+    console.error(err.stack);
+  }
+} else {
+  console.warn('[Startup] Socket.IO not initialized — module failed to load');
+}
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
@@ -104,6 +205,9 @@ server.listen(PORT, () => {
   console.log(`  Lucky Guess Backend running on port ${PORT}`);
   console.log(`  Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`  Health check: http://localhost:${PORT}/health`);
+  console.log(`  Debug routes: http://localhost:${PORT}/debug/routes`);
+  console.log(`  Routes loaded: ${registeredRoutes.length} group(s)`);
+  registeredRoutes.forEach(r => console.log(`    - ${r}`));
   console.log('===============================================');
 });
 
