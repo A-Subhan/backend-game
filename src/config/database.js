@@ -31,16 +31,32 @@ function initClients() {
     // not the whole module-load chain.
     const { createClient } = require('@supabase/supabase-js');
 
+    // Provide the "ws" package as the WebSocket transport so
+    // Supabase Realtime works on Node.js < 22 (which lacks
+    // native WebSocket support).
+    let realtimeOptions = {};
+    try {
+      const ws = require('ws');
+      realtimeOptions = { realtime: { transport: ws } };
+    } catch (_wsErr) {
+      console.warn('[LuckyGuess] "ws" package not found — realtime may fail on Node < 22');
+    }
+
+    const clientOptions = {
+      auth: { autoRefreshToken: false, persistSession: false },
+      ...realtimeOptions,
+    };
+
     _supabaseAdmin = createClient(
       env.SUPABASE_URL,
       env.SUPABASE_SERVICE_ROLE_KEY,
-      { auth: { autoRefreshToken: false, persistSession: false } }
+      clientOptions
     );
 
     _supabaseAnon = createClient(
       env.SUPABASE_URL,
       env.SUPABASE_ANON_KEY,
-      { auth: { autoRefreshToken: false, persistSession: false } }
+      clientOptions
     );
 
     console.log('[LuckyGuess] Supabase clients initialized');
